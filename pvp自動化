@@ -1,0 +1,88 @@
+local p, rs, cam = game.Players.LocalPlayer, game:GetService("RunService"), workspace.CurrentCamera
+local f = {aimbot = false, killAura = false, esp = false, speedBoost = false, autoDodge = false, fullAuto = false}
+
+-- GUI初期化 (前回のデザインを継承)
+local sg = Instance.new("ScreenGui", p.PlayerGui); sg.Name = "dcAimbotSpec"; sg.ResetOnSpawn = false
+local mf = Instance.new("Frame", sg); mf.Size = UDim2.new(0,190,0,310); mf.Position = UDim2.new(0.5,-95,0.4,-155); mf.BackgroundColor3 = Color3.fromRGB(15,15,15); mf.Draggable, mf.Active, mf.Visible = true, true, true
+Instance.new("UICorner", mf).CornerRadius = UDim.new(0,12); Instance.new("UIStroke", mf).Color = Color3.fromRGB(50,50,50)
+
+local tl = Instance.new("TextLabel", mf); tl.Size = UDim2.new(1,0,0,45); tl.Text = "dc-Ru1n-"; tl.Font = "GothamBold"; tl.TextSize = 22; tl.BackgroundTransparency = 1
+rs.RenderStepped:Connect(function() tl.TextColor3 = Color3.fromHSV(tick()%5/5, 0.6, 1) end)
+
+local function btn(id, txt, y)
+    local fr = Instance.new("Frame", mf); fr.Size = UDim2.new(0.9,0,0,35); fr.Position = UDim2.new(0.05,0,0,y); fr.BackgroundColor3 = Color3.fromRGB(25,25,25); Instance.new("UICorner", fr)
+    local l = Instance.new("TextLabel", fr); l.Size = UDim2.new(0.6,0,1,0); l.Text = " "..txt; l.Font = "GothamMedium"; l.TextColor3 = Color3.new(1,1,1); l.BackgroundTransparency = 1; l.TextXAlignment = 0
+    local tb = Instance.new("TextButton", fr); tb.Size = UDim2.new(0,50,0,22); tb.Position = UDim2.new(0.68,0,0.2,0); tb.Text = "OFF"; tb.Font = "GothamBold"; tb.TextColor3 = Color3.new(1,1,1); tb.BackgroundColor3 = Color3.fromRGB(255,50,50)
+    local s = Instance.new("UIStroke", tb); s.Color = Color3.fromRGB(255,0,0); Instance.new("UICorner", tb).CornerRadius = UDim.new(1,0)
+    tb.MouseButton1Click:Connect(function()
+        f[id] = not f[id]
+        tb.Text = f[id] and "ON" or "OFF"
+        tb.BackgroundColor3 = f[id] and Color3.fromRGB(0,200,100) or Color3.fromRGB(255,50,50)
+        s.Color = tb.BackgroundColor3
+    end)
+end
+
+local b_list = {{"aimbot","超特化エイム",55},{"killAura","キルオーラ",95},{"autoDodge","自動回避",135},{"esp","HITBOX",175},{"speedBoost","SPEED",215},{"fullAuto","FULL AI",255}}
+for _, v in pairs(b_list) do btn(v[1], v[2], v[3]) end
+
+local dc = Instance.new("TextButton", sg); dc.Size = UDim2.new(0,45,0,45); dc.Position = UDim2.new(0.02,0,0.45,0); dc.Text = "dc"; dc.BackgroundColor3 = Color3.fromRGB(20,20,20); dc.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", dc).CornerRadius = UDim.new(1,0)
+dc.MouseButton1Click:Connect(function() mf.Visible = not mf.Visible end)
+
+-- --- 超特化オートエイム & 物理ロジック ---
+local target = nil
+
+-- ターゲット検索を最速ループで実行
+rs.Heartbeat:Connect(function()
+    local c = p.Character; if not c or not c:FindFirstChild("HumanoidRootPart") then target = nil return end
+    local r = c.HumanoidRootPart
+    
+    local closest, minMag = nil, 500
+    for _, plr in pairs(game.Players:GetPlayers()) do
+        if plr ~= p and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+            local pRoot = plr.Character.HumanoidRootPart
+            local screenPos, onScreen = cam:WorldToViewportPoint(pRoot.Position)
+            if onScreen then
+                local mag = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2)).Magnitude
+                if mag < minMag then minMag, closest = mag, pRoot end
+            end
+        end
+    end
+    target = closest
+
+    -- スピードブースト & 回避
+    if f.speedBoost and c.Humanoid.MoveDirection.Magnitude > 0 then 
+        r.AssemblyLinearVelocity = Vector3.new(c.Humanoid.MoveDirection.X*28, r.AssemblyLinearVelocity.Y, c.Humanoid.MoveDirection.Z*28) 
+    end
+    if (f.autoDodge or f.fullAuto) then
+        for _, plr in pairs(game.Players:GetPlayers()) do
+            if plr ~= p and plr.Character and plr.Character:FindFirstChild("Bat") and (r.Position - plr.Character.HumanoidRootPart.Position).Magnitude < 10 then
+                r.AssemblyLinearVelocity = (r.Position - plr.Character.HumanoidRootPart.Position).Unit * 80 + Vector3.new(0,15,0)
+            end
+        end
+    end
+    if f.fullAuto and target and (r.Position - target.Position).Magnitude > 8 then c.Humanoid:MoveTo(target.Position) end
+end)
+
+-- カメラ追従をレンダリングフレームに同期 (超滑らか)
+rs.RenderStepped:Connect(function()
+    if (f.aimbot or f.fullAuto) and target then
+        -- 補間(Lerp)を使わず直接書き換えることで「吸い付き」を最大化
+        cam.CFrame = CFrame.new(cam.CFrame.Position, target.Position)
+    end
+end)
+
+-- キルオーラ & ESP
+task.spawn(function()
+    while task.wait(0.05) do
+        if f.killAura or f.fullAuto then
+            local b = p.Character:FindFirstChild("Bat") or p.Backpack:FindFirstChild("Bat")
+            if b then for _, plr in pairs(game.Players:GetPlayers()) do if plr ~= p and plr.Character and (p.Character.HumanoidRootPart.Position - plr.Character.HumanoidRootPart.Position).Magnitude < 18 then b.Parent = p.Character; b:Activate() end end end
+        end
+        for _, plr in pairs(game.Players:GetPlayers()) do
+            if plr ~= p and plr.Character then
+                local hl = plr.Character:FindFirstChild("dcESP")
+                if f.esp then if not hl then hl = Instance.new("Highlight", plr.Character); hl.Name = "dcESP" end; hl.FillColor = Color3.fromHSV(tick()%5/5, 1, 1) elseif hl then hl:Destroy() end
+            end
+        end
+    end
+end)
